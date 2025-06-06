@@ -1,0 +1,50 @@
+# Ledger Lattice Hunter Configuration
+
+# Bitcoin RPC Configuration
+bitcoin_rpc:
+  url: ${BTC_RPC_URL}
+  user: ${BTC_RPC_USER}
+  password: ${BTC_RPC_PASSWORD}
+
+# Database Configuration
+database:
+  mongodb:
+    uri: ${MONGODB_URI}
+    database_name: llh_db
+    collections:
+      signatures: signatures
+      pubkeys: pubkeys
+      vulnerabilities: vulnerabilities
+
+# Crawler Configuration
+crawler:
+  batch_size: 1000
+  max_retries: 3
+  timeout: 30
+  concurrent_requests: 10
+
+# Attack Configuration
+attack:
+  poll_interval: 60 # Time in seconds to wait before checking for new targets
+  recheck_interval_hours: 24 # Time in hours to wait before re-attacking a failed target
+
+# Lattice Attack Configuration
+lattice:
+  min_signatures_for_attack: 50
+  max_dimension: 100
+  sieving_algorithm: "g6k"
+  reduction_algorithm: "bkz"
+  beta_parameter: 20
+
+# Worker Configuration
+workers:
+  min_workers: 2
+  max_workers: 10
+  cpu_limit: "4"
+  memory_limit: "8Gi"
+
+# Logging Configuration
+logging:
+  level: INFO
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "logs/llh.log" 

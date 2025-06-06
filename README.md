@@ -1,69 +1,119 @@
-# Automatic attack tool for whitebox ECDSA
+# Ledger Lattice Hunter (LLH)
 
-This repo contains an automatic attack tool, allowing for the attack of some whitebox ECDSA implementation, with very little to none human interaction.
+An autonomous agent designed to identify and exploit nonce leakage vulnerabilities in ECDSA signatures across public ledgers.
 
-The tool compiles the provided challenge and tries to inject faults by randomly perturbing one or several faults of the binary file. The faulty values are then exploited by Differential Fault Analysis methods.
+## Features
 
-It has been used to automatically break most of the challenges of the [WhibOx contest](https://whibox.io/contests/2021/). Note however that some challenges resist to our automatic approach!
+- Distributed blockchain data crawling
+- Advanced lattice-based attack implementation
+- Intelligent vulnerability fingerprinting
+- Scalable worker architecture
+- Real-time vulnerability detection
 
-Tool works alongside with the `ecdsattack` package. This package is standalone and can be easily reused in a different project.
+## Prerequisites
 
-For more details about the tool design, please read the associated [blogpost](https://blog.ledger.com/whitebox_ecdsa/).
+- Python 3.8+
+- Docker & Docker Compose
+- MongoDB
+- A Bitcoin RPC node (e.g., via ChainStack)
 
-## How to use?
+## Getting Started
 
-First, install the `ecdsattack` package:
+### 1. Environment Setup
 
-```shell
-pip install .
+First, clone the repository and create an environment file from the example:
+
+```bash
+git clone https://github.com/yourusername/ledger-lattice-hunter.git
+cd ledger-lattice-hunter
+cp .env.example .env
 ```
 
-Install GCC 10. Every submission must be written in C accepted by GCC 10.2.0, according to the [WhibOx rules](https://whibox.io/contests/2021/rules). This is why our attack framework also uses this compiler.
+Next, open the `.env` file and fill in the required credentials for your Bitcoin RPC node and any other custom settings.
 
-On Debian and Ubuntu based distributions, run:
+### 2. Build and Run with Docker
 
-```shell
-sudo apt install gcc-10
+This project is designed to be run with Docker Compose, which orchestrates the necessary services.
+
+To build the Docker images and start the services, run:
+
+```bash
+docker-compose up --build
 ```
 
-Then, you need to download the challenges from the WhibOx website.
-The `download_challenges.py` script automatically downloads the required files:
+This command will start three main services:
+-   `mongodb`: The database instance for storing signatures and results.
+-   `crawler`: The service that connects to the Bitcoin blockchain, ingests transactions, and stores signatures in the database.
+-   `attack`: The service that continuously queries the database for attackable public keys and runs the lattice attack against them.
 
-```shell
-cd whibox
-python3 download_challenges.py
+### 3. Monitoring the System
+
+You can monitor the logs of each service to see their progress:
+
+-   **Crawler Logs**: `docker-compose logs -f crawler`
+-   **Attack Logs**: `docker-compose logs -f attack`
+
+### 4. Stopping the System
+
+To stop all running services, press `Ctrl+C` in the terminal where `docker-compose up` is running, or run the following command from another terminal:
+
+```bash
+docker-compose down
 ```
 
-All available sources will be stored in the `challenges` directory.
+## Configuration
 
-Now, you can target any challenge by giving its id number as an argument:
+The project uses a YAML configuration file located at `config/config.yaml`. Key configuration sections include:
 
-```shell
-$ python3 attack_challenge.py 3
-Target pubkey: (51373825986355774071250980279620467994040880475046330500810086649905043895940,24310311305488748994553138095599191243412933863929305440484464503786399707769)
-Got original signatures
-Found fault: [Signature(h=77194726158210796949047323339125271902179989777093709359638389338608753093290, r=51261857506776367647170974185543587743399745698476691298914904042177902976601, s=24034990606478394525403416946129616596586010172124072163530054669774869469257), Signature(h=84914198774031876643952055673037799092397988754803080295602228272469628402619, r=14550751080734615811966333159702574286792132474439442617840429198988393190538, s=103645674120494530263794094172624223700881526969124523449288297793523532913381)]
-Found correct public point: (51373825986355774071250980279620467994040880475046330500810086649905043895940,24310311305488748994553138095599191243412933863929305440484464503786399707769)
-Found private key: 31253071056798043433470842980578431346673942427308960093681577454551269345214
-In hex: 0x45189c81eadee03202bfa06eaa15831789f0c76575508a563e1a739ca37b87be
-Fault: index=0x16ea, value=0x6b
-# crashes =  7
-# faults without effect =  31
+- ChainStack API settings
+- Database connection details
+- Crawler parameters
+- Lattice attack configuration
+- Worker deployment settings
+
+## Usage
+
+1. Start the crawler:
+```bash
+python -m llh.crawler.main
 ```
 
-The ```--fast``` option ensures that only the simplest and most efficient attack method is used. It implies a quickest execution time, but some challenges may resist. By disabling it, the tool tries to inject faults into two different binary files.
-
-```shell
-$ python3 attack_challenge.py --fast 3
-Target pubkey: (51373825986355774071250980279620467994040880475046330500810086649905043895940,24310311305488748994553138095599191243412933863929305440484464503786399707769)
-Got original signatures
-Found fault: [Signature(h=77194726158210796949047323339125271902179989777093709359638389338608753093290, r=49098583567513067215186017367485795504455019334892761483083891015802167749698, s=23655982380257869798946273962635685699073675603598634877083025295238220904608)]
-Found correct public point: (51373825986355774071250980279620467994040880475046330500810086649905043895940,24310311305488748994553138095599191243412933863929305440484464503786399707769)
-Found private key: 31253071056798043433470842980578431346673942427308960093681577454551269345214
-In hex: 0x45189c81eadee03202bfa06eaa15831789f0c76575508a563e1a739ca37b87be
-Fault: index=0x18f6, value=0xd2
-# crashes =  1
-# faults without effect =  12
+2. Launch the lattice attack workers:
+```bash
+python -m llh.lattice.worker
 ```
 
-When the execution is complete, you can find the correct and faulted binary files that produced the signatures, ```main_a``` and ```main_a_faulted``` (respectively ```main_b``` and ```main_b_faulted```) at the root.
+3. Monitor results:
+```bash
+python -m llh.analysis.monitor
+```
+
+## Project Structure
+
+```
+llh/
+├── crawler/         # Blockchain data crawling
+├── database/        # Database models and operations
+├── lattice/         # Lattice attack implementation
+├── analysis/        # Vulnerability analysis
+└── utils/           # Shared utilities
+```
+
+## Testing
+
+Run the test suite:
+```bash
+pytest
+```
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Contributing
+
+1. Fork the repository
+2. Create your feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request 

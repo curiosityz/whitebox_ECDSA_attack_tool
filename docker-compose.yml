@@ -1,0 +1,44 @@
+version: "3.8"
+
+services:
+  crawler:
+    build:
+      context: .
+    container_name: llh_crawler
+    depends_on:
+      - mongodb
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017/llh_db
+      - CHAINSTACK_BTC_RPC_URL=${CHAINSTACK_BTC_RPC_URL}
+      - CHAINSTACK_BTC_RPC_USER=${CHAINSTACK_BTC_RPC_USER}
+      - CHAINSTACK_BTC_RPC_PASSWORD=${CHAINSTACK_BTC_RPC_PASSWORD}
+    command: >
+      bash -c "
+        /wait-for-it.sh mongodb:27017 --
+        python -m src.llh.crawler.main
+      "
+
+  attack:
+    build:
+      context: .
+    container_name: llh_attack
+    depends_on:
+      - mongodb
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017/llh_db
+    command: >
+      bash -c "
+        /wait-for-it.sh mongodb:27017 --
+        python -m src.llh.attack.main
+      "
+
+  mongodb:
+    image: mongo:latest
+    container_name: llh_mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+
+volumes:
+  mongodb_data: 
