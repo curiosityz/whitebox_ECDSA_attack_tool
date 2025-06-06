@@ -3,7 +3,7 @@ Database connection handler for MongoDB operations.
 """
 
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.errors import ConnectionFailure
 from datetime import datetime, timedelta
@@ -125,4 +125,38 @@ class DatabaseConnection:
         """Retrieve public keys with at least the specified number of signatures."""
         collection = self.db[self.config["database"]["mongodb"]["collections"]["pubkeys"]]
         cursor = collection.find({"signature_count": {"$gte": min_count}})
-        return await cursor.to_list(length=None) 
+        return await cursor.to_list(length=None)
+
+    async def get_all_vulnerabilities(self) -> List[VulnerabilityReport]:
+        """Retrieve all vulnerability reports from the database."""
+        collection = self.db[self.config["database"]["mongodb"]["collections"]["vulnerabilities"]]
+        cursor = collection.find({})
+        return [VulnerabilityReport(**v) for v in await cursor.to_list(length=None)]
+
+    async def get_pubkey_metadata_bulk(self, pubkeys: List[str]) -> List[PubkeyMetadata]:
+        """Retrieve metadata for a list of public keys."""
+        collection = self.db[self.config["database"]["mongodb"]["collections"]["pubkeys"]]
+        cursor = collection.find({"pubkey": {"$in": pubkeys}})
+        return [PubkeyMetadata(**m) for m in await cursor.to_list(length=len(pubkeys))]
+
+    async def get_all_pubkey_metadata(self) -> List[PubkeyMetadata]:
+        """Retrieve all pubkey metadata from the database."""
+        collection = self.db[self.config["database"]["mongodb"]["collections"]["pubkeys"]]
+        cursor = collection.find({})
+        return [PubkeyMetadata(**m) for m in await cursor.to_list(length=None)]
+
+    async def set_high_priority_targets(self, pubkeys: List[str]) -> None:
+        """Overwrite the list of high-priority attack targets."""
+        collection_name = self.config["database"]["mongodb"]["collections"]["priority_targets"]
+        collection = self.db[collection_name]
+        await collection.delete_many({})  # Clear the existing list
+        if pubkeys:
+            documents = [{"pubkey": pubkey, "timestamp": datetime.utcnow()} for pubkey in pubkeys]
+            await collection.insert_many(documents)
+            
+    async def get_high_priority_target(self) -> Optional[str]:
+        """Get and remove one high-priority target from the list."""
+        collection_name = self.config["database"]["mongodb"]["collections"]["priority_targets"]
+        collection = self.db[collection_name]
+        document = await collection.find_one_and_delete({})
+        return document["pubkey"] if document else None 

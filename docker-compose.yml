@@ -32,6 +32,20 @@ services:
         python -m src.llh.attack.main
       "
 
+  analysis:
+    build:
+      context: .
+    container_name: llh_analysis
+    depends_on:
+      - mongodb
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017/llh_db
+    command: >
+      bash -c "
+        /wait-for-it.sh mongodb:27017 --
+        python -m src.llh.analysis.main
+      "
+
   mongodb:
     image: mongo:latest
     container_name: llh_mongodb

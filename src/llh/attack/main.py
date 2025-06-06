@@ -58,9 +58,16 @@ class AttackManager:
         """
         Selects the next public key to attack from the database.
         
-        A good target is one with a high number of signatures that hasn't been
-        marked as vulnerable yet.
+        It first checks for high-priority targets identified by the analysis module.
+        If none are found, it falls back to the default method.
         """
+        # First, try to get a high-priority target
+        priority_target = await self.db.get_high_priority_target()
+        if priority_target:
+            logger.info(f"Selected high-priority target: {priority_target}")
+            return priority_target
+
+        # Fallback to the original selection method
         min_sigs = self.config["lattice"]["min_signatures_for_attack"]
         target = await self.db.get_next_attack_candidate(min_sigs)
         return target.pubkey if target else None

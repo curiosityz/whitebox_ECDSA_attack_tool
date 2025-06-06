@@ -15,6 +15,7 @@ database:
       signatures: signatures
       pubkeys: pubkeys
       vulnerabilities: vulnerabilities
+      priority_targets: priority_targets
 
 # Crawler Configuration
 crawler:
@@ -30,11 +31,13 @@ attack:
 
 # Lattice Attack Configuration
 lattice:
-  min_signatures_for_attack: 50
+  min_signatures_for_attack: 20
   max_dimension: 100
   sieving_algorithm: "g6k"
   reduction_algorithm: "bkz"
   beta_parameter: 20
+  klen: 160
+  x_param: 40
 
 # Worker Configuration
 workers:
@@ -47,4 +50,13 @@ workers:
 logging:
   level: INFO
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-  file: "logs/llh.log" 
+  file: "logs/llh.log"
+
+# Configuration for the analysis module
+analysis:
+  # Enable this to have the analysis module generate a list of high-priority targets
+  enable_prioritization: true
+  # Criteria for a public key to be considered high-priority
+  priority_criteria:
+    min_age_days: 365
+    min_signatures: 50 
