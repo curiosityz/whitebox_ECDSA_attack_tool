@@ -1,19 +1,26 @@
-# Use a base image that has SageMath, fplll, and G6K pre-installed.
-FROM fplll/sagemath-g6k:latest
+FROM fplll/sagemath-g6k:latest as builder
 
-# Set the working directory inside the container
 WORKDIR /app
 
-# Copy the entire project structure into the container
+# Copy all files needed for building the package
+COPY pyproject.toml .
+COPY README.md .
+COPY src/ src/
+
+# Install dependencies
+RUN pip install --no-cache-dir .[test]
+
+# Final stage
+FROM fplll/sagemath-g6k:latest
+
+WORKDIR /app
+
+# Copy only the necessary files from the builder stage
+COPY --from=builder /usr/local/lib/python3.*/site-packages/ /usr/local/lib/python3.*/site-packages/
+COPY --from=builder /usr/local/bin/ /usr/local/bin/
+
+# Copy the rest of the application
 COPY . .
 
-# Install Python dependencies from pyproject.toml
-# The sage-env script sets up the environment to use Sage's Python and packages.
-# We install with the [test] option to include testing libraries.
-RUN . "/sage/local/bin/sage-env" && \
-    pip install --no-cache-dir .[test]
-
-# Set the default command to run when the container starts.
-# This will be overridden in docker-compose.yml for specific services,
-# but provides a useful default for interacting with the container.
+# Set the default command
 CMD ["/bin/bash"] 
