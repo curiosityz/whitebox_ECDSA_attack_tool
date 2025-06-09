@@ -14,9 +14,14 @@ ls -la /app/src
 ls -la /app/src/llh
 ls -la /app/src/llh/crawler
 
-# Touch empty checkpoint file to ensure it starts from block 1
-echo "1" > /app/data/checkpoints/crawler_checkpoint.txt
-echo "Starting from block 1" 
+# Only create initial checkpoint if none exists
+if [ ! -f /app/data/checkpoints/crawler_checkpoint.txt ]; then
+    echo "1" > /app/data/checkpoints/crawler_checkpoint.txt
+    echo "Starting from block 1 (no existing checkpoint)"
+else
+    EXISTING_CHECKPOINT=$(cat /app/data/checkpoints/crawler_checkpoint.txt)
+    echo "Found existing checkpoint: $EXISTING_CHECKPOINT"
+fi 
 
 # Print environment variables for debugging (redact passwords)
 echo "CHAINSTACK_BTC_RPC_URL: ${CHAINSTACK_BTC_RPC_URL}"

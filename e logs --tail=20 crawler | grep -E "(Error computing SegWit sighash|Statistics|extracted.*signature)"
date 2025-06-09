@@ -1,0 +1,8 @@
+Help on function SignatureHash in module bitcoin.core.script:
+
+SSiiggnnaattuurreeHHaasshh(script, txTo, inIdx, hashtype, amount=None, sigversion=0)
+    Calculate a signature hash
+    
+    'Cooked' version that checks if inIdx is out of bounds - this is *not*
+    consensus-correct behavior, but is what you probably want for general
+    wallet use.

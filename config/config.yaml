@@ -31,7 +31,7 @@ attack:
 
 # Lattice Attack Configuration
 lattice:
-  min_signatures_for_attack: 20
+  min_signatures_for_attack: 5  # Lowered for testing
   max_dimension: 100
   sieving_algorithm: "g6k"
   reduction_algorithm: "bkz"

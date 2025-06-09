@@ -143,6 +143,12 @@ class BlockchainCrawler:
             block_count += (block_end - block_start + 1)
             progress_pct = (block_count / (current_block - start_block)) * 100
             logger.info(f"Progress: {block_count}/{current_block - start_block} blocks ({progress_pct:.2f}%)")
+        
+        # Log final parser statistics
+        logger.info("="*60)
+        logger.info("FINAL CRAWLER STATISTICS")
+        logger.info("="*60)
+        self.parser.log_stats()
     
     async def _get_latest_block(self) -> int:
         """Get the latest block number."""
@@ -172,6 +178,7 @@ class BlockchainCrawler:
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
         # Process results and update database
+        total_signatures = 0
         for block_number, result in zip(range(start_block, end_block + 1), results):
             if isinstance(result, Exception):
                 logger.error(f"Error processing block {block_number}: {result}", exc_info=True)
@@ -180,8 +187,16 @@ class BlockchainCrawler:
             signatures = result
             if signatures:
                 count = len(signatures)
-                logger.info(f"Found {count} signatures in block range {start_block}-{end_block}")
+                total_signatures += count
+                logger.info(f"Found {count} signatures in block {block_number}")
                 await self._update_database(signatures)
+        
+        if total_signatures > 0:
+            logger.info(f"Block range {start_block}-{end_block}: {total_signatures} total signatures extracted")
+        
+        # Log parser statistics periodically
+        if (end_block - start_block) % 100 == 0 or end_block % 1000 == 0:
+            self.parser.log_stats()
     
     async def _process_block(self, block_number: int) -> List[Signature]:
         """Process a single block and extract transaction data."""
@@ -214,9 +229,9 @@ class BlockchainCrawler:
                     if txin.prevout.is_null(): # Skip coinbase
                         continue
                     input_indices_with_prevout.append(i)
-                    prev_tx_hash_str = b2lx(txin.prevout.hash)
+                    prev_tx_hash_bytes = txin.prevout.hash
                     # Use getrawtransaction with verbose=1 to get dict
-                    rpc_task = self._rate_limited_rpc(self._make_rpc().getrawtransaction, prev_tx_hash_str, 1)
+                    rpc_task = self._rate_limited_rpc(self._make_rpc().getrawtransaction, prev_tx_hash_bytes, 1)
                     prev_tx_tasks.append(rpc_task)
                 if not prev_tx_tasks:
                     continue # only coinbase inputs in this tx
@@ -234,11 +249,10 @@ class BlockchainCrawler:
 
                     prev_tx_dict = res
                     output_index = txin.prevout.n
-                    if output_index < len(prev_tx_dict['vout']):
-                        vout_dict = prev_tx_dict['vout'][output_index]
-                        script_pub_key_hex = vout_dict['scriptPubKey']['hex']
-                        vout_val = int(Decimal(str(vout_dict['value'])) * 10**8)
-                        prev_tx_vouts.append(CTxOut(vout_val, CScript(x(script_pub_key_hex))))
+                    if output_index < len(prev_tx_dict['tx'].vout):
+                        vout = prev_tx_dict['tx'].vout[output_index]
+                        # vout is already a CTxOut object, no need to reconstruct
+                        prev_tx_vouts.append(vout)
                         valid_indices.append(original_index)
                     else:
                         logger.warning(f"Output index {output_index} out of range for tx {b2lx(txin.prevout.hash)}")
