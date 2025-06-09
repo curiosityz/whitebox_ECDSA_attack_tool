@@ -4,7 +4,7 @@ Database models for storing signature and vulnerability data.
 
 from datetime import datetime
 from typing import List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 class Signature(BaseModel):
     """Model for storing ECDSA signature data."""
@@ -17,9 +17,7 @@ class Signature(BaseModel):
     h: str = Field(..., description="Message hash that was signed")
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     
-    class Config:
-        """Pydantic model configuration."""
-        allow_population_by_field_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 class PubkeyMetadata(BaseModel):
     """Model for storing metadata about public keys."""
@@ -32,9 +30,7 @@ class PubkeyMetadata(BaseModel):
     is_vulnerable: bool = Field(default=False, description="Whether this key is known to be vulnerable")
     vulnerability_type: Optional[str] = Field(None, description="Type of vulnerability if any")
     
-    class Config:
-        """Pydantic model configuration."""
-        allow_population_by_field_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 class VulnerabilityReport(BaseModel):
     """Model for storing vulnerability analysis results."""
@@ -46,6 +42,4 @@ class VulnerabilityReport(BaseModel):
     attack_parameters: dict = Field(..., description="Parameters used in the successful attack")
     private_key: Optional[str] = Field(None, description="Recovered private key if successful")
     
-    class Config:
-        """Pydantic model configuration."""
-        allow_population_by_field_name = True 
+    model_config = ConfigDict(populate_by_name=True) 

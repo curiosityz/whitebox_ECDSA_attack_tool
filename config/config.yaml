@@ -2,9 +2,9 @@
 
 # Bitcoin RPC Configuration
 bitcoin_rpc:
-  url: ${BTC_RPC_URL}
-  user: ${BTC_RPC_USER}
-  password: ${BTC_RPC_PASSWORD}
+  url: ${CHAINSTACK_BTC_RPC_URL}
+  user: ${CHAINSTACK_BTC_RPC_USER}
+  password: ${CHAINSTACK_BTC_RPC_PASSWORD}
 
 # Database Configuration
 database:
@@ -38,6 +38,21 @@ lattice:
   beta_parameter: 20
   klen: 160
   x_param: 40
+  sample_selection_factor: 2  # How many times more signatures to fetch for selection
+  predicate_num_signatures: 100  # Number of signatures for predicate checks
+
+# G6K Sieving Parameters
+g6k_params:
+  threads: 4
+  verbose: true
+  seed: 0
+  default_sieve: "bgj1"
+  dual_mode: false
+  
+# Pump parameters for g6k
+pump_params:
+  down_sieve: true
+  max_loops: 3
 
 # Worker Configuration
 workers:
@@ -59,4 +74,4 @@ analysis:
   # Criteria for a public key to be considered high-priority
   priority_criteria:
     min_age_days: 365
-    min_signatures: 50 
+    min_signatures: 50

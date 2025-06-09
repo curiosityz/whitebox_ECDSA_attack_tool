@@ -1,26 +1,20 @@
-FROM fplll/sagemath-g6k:latest as builder
+FROM sagemath/sagemath:10.1
+
+USER root
+
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y build-essential git python3-dev libgmp-dev libmpfr-dev libmpc-dev automake autoconf libtool m4 perl netcat-traditional && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies (let Sage 10.x handle fpylll/g6k)
+RUN sage -pip install --no-cache-dir numpy==1.24.4 Cython==0.29.36 cysignals && \
+    sage -pip install --no-cache-dir wheel setuptools python-bitcoinlib ecdsa
 
 WORKDIR /app
+COPY . /app/
 
-# Copy all files needed for building the package
-COPY pyproject.toml .
-COPY README.md .
-COPY src/ src/
+# Install project dependencies
+RUN sage -pip install --no-cache-dir -r requirements.txt
 
-# Install dependencies
-RUN pip install --no-cache-dir .[test]
-
-# Final stage
-FROM fplll/sagemath-g6k:latest
-
-WORKDIR /app
-
-# Copy only the necessary files from the builder stage
-COPY --from=builder /usr/local/lib/python3.*/site-packages/ /usr/local/lib/python3.*/site-packages/
-COPY --from=builder /usr/local/bin/ /usr/local/bin/
-
-# Copy the rest of the application
-COPY . .
-
-# Set the default command
-CMD ["/bin/bash"] 
+CMD ["sage", "-python", "-m", "llh.analysis.main"]

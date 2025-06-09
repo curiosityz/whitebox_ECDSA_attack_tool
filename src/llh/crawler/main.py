@@ -5,6 +5,7 @@ Handles blockchain data collection and signature extraction.
 
 import asyncio
 import logging
+import os
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 from decimal import Decimal
@@ -18,6 +19,7 @@ from ..utils.logging import setup_logging
 from ..database.connection import DatabaseConnection
 from ..database.models import PubkeyMetadata, Signature
 from .transaction_parser import TransactionParser
+from .checkpoint import load_checkpoint, save_checkpoint
 
 logger = logging.getLogger(__name__)
 
@@ -51,18 +53,46 @@ class BlockchainCrawler:
     async def start(self):
         """Start the crawler and begin data collection."""
         try:
+            logger.info("Initializing blockchain crawler")
+            logger.info(f"RPC URL: {self.config['bitcoin_rpc']['url']}")
+            logger.info(f"RPC User: {self.config['bitcoin_rpc']['user']}")
+            
+            # Test RPC connection before proceeding
+            try:
+                test_connection = await asyncio.to_thread(self.rpc.getblockcount)
+                logger.info(f"RPC connection successful. Block height: {test_connection}")
+            except Exception as e:
+                logger.error(f"RPC connection test failed: {e}", exc_info=True)
+                raise RuntimeError(f"Failed to connect to Bitcoin RPC: {str(e)}")
+            
             await self.db.connect()
+            logger.info("Database connection established")
             await self._crawl_blocks()
+        except Exception as e:
+            logger.critical(f"Fatal error in crawler: {e}", exc_info=True)
+            raise
         finally:
             await self.db.close()
+            logger.info("Crawler execution completed")
     
     async def _crawl_blocks(self):
         """Crawl blocks and extract transaction data."""
         current_block = await self._get_latest_block()
         batch_size = self.config["crawler"]["batch_size"]
         
-        # Start from the first block
-        start_block = 1
+        # Load the checkpoint to determine where to start
+        start_block = load_checkpoint()
+        logger.info(f"Starting crawler from block {start_block} to {current_block} (total: {current_block - start_block} blocks)")
+        logger.info(f"RPC URL: {self.config['bitcoin_rpc']['url']}")
+        logger.info(f"RPC User: {self.config['bitcoin_rpc']['user']}")
+        logger.info(f"Batch size: {batch_size}")
+        
+        # Log more details about the process
+        if current_block <= start_block:
+            logger.warning(f"No new blocks to process. Current: {current_block}, Start: {start_block}")
+            return
+            
+        block_count = 0
         
         for block_start in range(start_block, current_block, batch_size):
             block_end = min(block_start + batch_size -1, current_block)
@@ -70,13 +100,33 @@ class BlockchainCrawler:
             
             try:
                 await self._process_block_range(block_start, block_end)
+                # Save a checkpoint after each batch is processed
+                save_checkpoint(block_end + 1)
             except Exception as e:
                 logger.error(f"Error processing block range {block_start}-{block_end}: {e}", exc_info=True)
+                # Save checkpoint at the start of the failed batch so we can retry
+                save_checkpoint(block_start)
                 continue
+                
+            # Log progress
+            block_count += (block_end - block_start + 1)
+            progress_pct = (block_count / (current_block - start_block)) * 100
+            logger.info(f"Progress: {block_count}/{current_block - start_block} blocks ({progress_pct:.2f}%)")
     
     async def _get_latest_block(self) -> int:
         """Get the latest block number."""
-        return await asyncio.to_thread(self.rpc.getblockcount)
+        try:
+            logger.debug("Attempting to get latest block height from RPC")
+            block_count = await asyncio.to_thread(self.rpc.getblockcount)
+            logger.info(f"Latest block height: {block_count}")
+            return block_count
+        except Exception as e:
+            logger.error(f"Error getting latest block: {e}", exc_info=True)
+            logger.warning("Using fallback value of 10 blocks for testing. This should NOT happen in production!")
+            # Don't silently use fallback in production - we should know if RPC is failing
+            if os.environ.get('ENVIRONMENT') == 'production':
+                raise
+            return 10
     
     async def _process_block_range(self, start_block: int, end_block: int):
         """Process a range of blocks."""
@@ -98,14 +148,21 @@ class BlockchainCrawler:
             
             signatures = result
             if signatures:
+                count = len(signatures)
+                logger.info(f"Found {count} signatures in block range {start_block}-{end_block}")
                 await self._update_database(signatures)
     
     async def _process_block(self, block_number: int) -> List[Signature]:
         """Process a single block and extract transaction data."""
-        logger.debug(f"Processing block {block_number}")
+        logger.info(f"Processing block {block_number}")
         try:
+            logger.debug(f"Fetching block hash for block {block_number}")
             block_hash = await asyncio.to_thread(self.rpc.getblockhash, block_number)
+            logger.debug(f"Block hash for block {block_number}: {block_hash}")
+            
+            logger.debug(f"Fetching full block data for block {block_number}")
             block = await asyncio.to_thread(self.rpc.getblock, block_hash, 2)
+            logger.debug(f"Block {block_number} retrieved successfully")
 
             if not block or not block.get('tx'):
                 return []
@@ -188,4 +245,45 @@ class BlockchainCrawler:
                 signature_count=count,
                 last_seen=datetime.utcnow()
             )
-            await self.db.update_pubkey_metadata(metadata) 
+            await self.db.update_pubkey_metadata(metadata)
+
+
+async def main():
+    """Main entry point for the crawler."""
+    # Setup logging
+    log_level = os.environ.get('LOG_LEVEL', 'INFO')
+    logging_config = {
+        "level": log_level,
+        "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        "file": "logs/llh.log"
+    }
+    setup_logging(logging_config)
+    
+    try:
+        # Log startup information
+        logger.info("="*80)
+        logger.info("Starting blockchain crawler")
+        logger.info("="*80)
+        
+        # Load configuration
+        config_path = os.environ.get('CONFIG_PATH', 'config/config.yaml')
+        logger.info(f"Loading configuration from {config_path}")
+        config = load_config(config_path)
+        
+        # Create and start crawler
+        crawler = BlockchainCrawler(config)
+        logger.info("Crawler initialized, starting blockchain processing")
+        await crawler.start()
+        
+        logger.info("Crawler completed successfully")
+        return 0
+    except Exception as e:
+        logger.critical(f"Critical error in crawler main: {e}", exc_info=True)
+        return 1
+
+
+if __name__ == "__main__":
+    # Run the main async function
+    import sys
+    result = asyncio.run(main())
+    sys.exit(result)

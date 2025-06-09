@@ -1,0 +1,47 @@
+FROM sagemath/sagemath:10.1
+
+USER root
+
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y \
+    build-essential \
+    git \
+    python3-dev \
+    libgmp-dev \
+    libmpfr-dev \
+    libmpc-dev \
+    netcat && \
+    rm -rf /var/lib/apt/lists/*
+
+# Set SAGE_ROOT environment variable
+ENV SAGE_ROOT=/home/sage/sage
+
+# Install Python dependencies
+RUN sage -pip install --no-cache-dir \
+    numpy==1.24.4 \
+    scipy==1.10.1 \
+    matplotlib==3.7.1 \
+    pandas==2.0.3 \
+    pymongo==4.5.0 \
+    python-dotenv==1.0.0 \
+    requests==2.31.0 \
+    ecdsa==0.18.0 \
+    python-bitcoinlib==0.12.0 \
+    motor==3.3.0 \
+    pydantic==2.3.0 \
+    PyYAML==6.0.1 \
+    fpylll==0.5.9 \
+    Cython==0.29.36 \
+    cysignals==1.11.4
+
+WORKDIR /app
+COPY . /app/
+
+# Make wait-for-it.sh executable
+RUN chmod +x /app/wait-for-it.sh
+
+# Set PYTHONPATH to include src directory
+ENV PYTHONPATH=/app/src
+
+CMD ["sage", "-python", "-m", "llh.analysis.main"]

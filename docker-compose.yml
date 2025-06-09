@@ -2,11 +2,15 @@ version: "3.8"
 
 services:
   crawler:
-    build:
-      context: .
+    build: .
     container_name: llh_crawler
+    volumes:
+      - .:/app
+      - ./wait-for-it.sh:/wait-for-it.sh
+      - crawler_data:/app/data
     depends_on:
-      - mongodb
+      mongodb:
+        condition: service_healthy
     environment:
       - MONGODB_URI=mongodb://mongodb:27017/llh_db
       - CHAINSTACK_BTC_RPC_URL=${CHAINSTACK_BTC_RPC_URL}
@@ -14,45 +18,77 @@ services:
       - CHAINSTACK_BTC_RPC_PASSWORD=${CHAINSTACK_BTC_RPC_PASSWORD}
     command: >
       bash -c "
-        /wait-for-it.sh mongodb:27017 --
-        python -m src.llh.crawler.main
+        chmod +x /app/start_crawler.sh &&
+        /app/start_crawler.sh
       "
+    restart: unless-stopped
 
   attack:
-    build:
-      context: .
+    image: python:3.11-slim
     container_name: llh_attack
+    user: "0:0"
+    volumes:
+      - .:/app
+      - ./wait-for-it.sh:/wait-for-it.sh
+    working_dir: /app
     depends_on:
-      - mongodb
+      mongodb:
+        condition: service_healthy
     environment:
       - MONGODB_URI=mongodb://mongodb:27017/llh_db
     command: >
       bash -c "
-        /wait-for-it.sh mongodb:27017 --
-        python -m src.llh.attack.main
+        chmod +x /wait-for-it.sh &&
+        apt-get update &&
+        apt-get install -y build-essential git python3-dev netcat-traditional &&
+        pip install --no-cache-dir numpy==1.24.4 Cython==0.29.36 &&
+        pip install --no-cache-dir -r requirements.txt &&
+        /wait-for-it.sh mongodb:27017 -- python3 -m src.llh.attack.main
       "
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; socket.create_connection(('localhost', 8081), timeout=1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   analysis:
-    build:
-      context: .
+    build: .
     container_name: llh_analysis
+    volumes:
+      - .:/app
+      - ./wait-for-it.sh:/wait-for-it.sh
     depends_on:
-      - mongodb
+      mongodb:
+        condition: service_healthy
     environment:
       - MONGODB_URI=mongodb://mongodb:27017/llh_db
     command: >
       bash -c "
-        /wait-for-it.sh mongodb:27017 --
-        python -m src.llh.analysis.main
+        while true; do
+          sage -python -m src.llh.analysis.main
+          echo 'Analysis sleeping for 1 hour...'
+          sleep 3600
+        done
       "
+    restart: unless-stopped
 
   mongodb:
-    image: mongo:latest
+    image: mongo:6.0
     container_name: llh_mongodb
     ports:
       - "27017:27017"
     volumes:
       - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
 
 volumes:
-  mongodb_data: 
+  mongodb_data:
+  crawler_data:
