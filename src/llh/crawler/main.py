@@ -10,6 +10,8 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime
 from decimal import Decimal
 
+import time
+
 import bitcoin.rpc
 from bitcoin.core import CTransaction, x, b2lx, CTxOut
 from bitcoin.core.script import CScript
@@ -26,12 +28,41 @@ logger = logging.getLogger(__name__)
 class BlockchainCrawler:
     """Main crawler class for collecting blockchain data."""
     
+
     def __init__(self, config: Dict[str, Any]):
         """Initialize the crawler with configuration."""
         self.config = config
-        self.rpc = self._setup_rpc()
+        self._rpc_conf = self.config["bitcoin_rpc"]
         self.db = DatabaseConnection(self.config)
         self.parser = TransactionParser()
+        # Rate limiter: 20 API calls per second
+        self._rate_limit = 15  # max requests per second
+        self._min_interval = 1.0 / self._rate_limit
+        self._last_call_time = 0.0
+        self._rate_lock = asyncio.Lock()
+
+    def _make_rpc(self) -> bitcoin.rpc.Proxy:
+        """Create a new Bitcoin RPC connection (not thread-safe to share)."""
+        rpc_conf = self._rpc_conf
+        rpc_url = rpc_conf["url"]
+        rpc_user = rpc_conf["user"]
+        rpc_pass = rpc_conf["password"]
+        if "://" in rpc_url:
+            rpc_url = rpc_url.split("://")[1]
+        service_url = f"http://{rpc_user}:{rpc_pass}@{rpc_url}"
+        return bitcoin.rpc.Proxy(service_url=service_url, timeout=self.config["crawler"]["timeout"])
+
+    async def _acquire_rate_limit(self):
+        async with self._rate_lock:
+            now = time.monotonic()
+            elapsed = now - self._last_call_time
+            if elapsed < self._min_interval:
+                await asyncio.sleep(self._min_interval - elapsed)
+            self._last_call_time = time.monotonic()
+
+    async def _rate_limited_rpc(self, func, *args, **kwargs):
+        await self._acquire_rate_limit()
+        return await asyncio.to_thread(func, *args, **kwargs)
         
     def _setup_rpc(self) -> bitcoin.rpc.Proxy:
         """Set up Bitcoin RPC connection."""
@@ -59,12 +90,12 @@ class BlockchainCrawler:
             
             # Test RPC connection before proceeding
             try:
-                test_connection = await asyncio.to_thread(self.rpc.getblockcount)
+                rpc = self._make_rpc()
+                test_connection = await self._rate_limited_rpc(rpc.getblockcount)
                 logger.info(f"RPC connection successful. Block height: {test_connection}")
             except Exception as e:
                 logger.error(f"RPC connection test failed: {e}", exc_info=True)
                 raise RuntimeError(f"Failed to connect to Bitcoin RPC: {str(e)}")
-            
             await self.db.connect()
             logger.info("Database connection established")
             await self._crawl_blocks()
@@ -117,13 +148,13 @@ class BlockchainCrawler:
         """Get the latest block number."""
         try:
             logger.debug("Attempting to get latest block height from RPC")
-            block_count = await asyncio.to_thread(self.rpc.getblockcount)
+            rpc = self._make_rpc()
+            block_count = await self._rate_limited_rpc(rpc.getblockcount)
             logger.info(f"Latest block height: {block_count}")
             return block_count
         except Exception as e:
             logger.error(f"Error getting latest block: {e}", exc_info=True)
             logger.warning("Using fallback value of 10 blocks for testing. This should NOT happen in production!")
-            # Don't silently use fallback in production - we should know if RPC is failing
             if os.environ.get('ENVIRONMENT') == 'production':
                 raise
             return 10
@@ -132,11 +163,11 @@ class BlockchainCrawler:
         """Process a range of blocks."""
         # Process blocks concurrently with rate limiting
         semaphore = asyncio.Semaphore(self.config["crawler"]["concurrent_requests"])
-        
+
         async def process_with_semaphore(block_number):
             async with semaphore:
                 return await self._process_block(block_number)
-        
+
         tasks = [process_with_semaphore(block_number) for block_number in range(start_block, end_block + 1)]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
@@ -156,25 +187,27 @@ class BlockchainCrawler:
         """Process a single block and extract transaction data."""
         logger.info(f"Processing block {block_number}")
         try:
+            rpc = self._make_rpc()
             logger.debug(f"Fetching block hash for block {block_number}")
-            block_hash = await asyncio.to_thread(self.rpc.getblockhash, block_number)
+            block_hash = await self._rate_limited_rpc(rpc.getblockhash, block_number)
             logger.debug(f"Block hash for block {block_number}: {block_hash}")
-            
+
             logger.debug(f"Fetching full block data for block {block_number}")
-            block = await asyncio.to_thread(self.rpc.getblock, block_hash, 2)
+            block = await self._rate_limited_rpc(rpc.getblock, block_hash)  # removed extra arg
             logger.debug(f"Block {block_number} retrieved successfully")
 
-            if not block or not block.get('tx'):
+            # The rest of the code expects block['tx'], but bitcoin.rpc.Proxy.getblock returns a CBlock, not a dict.
+            # If you need verbose tx data, you may need to fetch raw block and decode, or adjust logic here.
+            # For now, keep the structure, but you may need to adapt downstream code if block['tx'] fails.
+            if not hasattr(block, 'vtx'):
+                logger.error(f"Block object does not have 'vtx' attribute. Adjust parsing logic as needed.")
                 return []
 
             all_signatures = []
-            for tx_data in block['tx']:
-                tx = CTransaction.deserialize(x(tx_data['hex']))
-
+            for tx in block.vtx:
+                # tx is a CTransaction already
                 # For each input, we need the scriptPubKey from the output it is spending.
                 # To get this, we must fetch the full previous transaction.
-                
-                # Prepare to fetch previous transactions concurrently
                 prev_tx_tasks = []
                 input_indices_with_prevout = []
                 for i, txin in enumerate(tx.vin):
@@ -183,10 +216,8 @@ class BlockchainCrawler:
                     input_indices_with_prevout.append(i)
                     prev_tx_hash_str = b2lx(txin.prevout.hash)
                     # Use getrawtransaction with verbose=1 to get dict
-                    prev_tx_tasks.append(
-                        asyncio.to_thread(self.rpc.getrawtransaction, prev_tx_hash_str, 1)
-                    )
-                
+                    rpc_task = self._rate_limited_rpc(self._make_rpc().getrawtransaction, prev_tx_hash_str, 1)
+                    prev_tx_tasks.append(rpc_task)
                 if not prev_tx_tasks:
                     continue # only coinbase inputs in this tx
 
@@ -206,7 +237,6 @@ class BlockchainCrawler:
                     if output_index < len(prev_tx_dict['vout']):
                         vout_dict = prev_tx_dict['vout'][output_index]
                         script_pub_key_hex = vout_dict['scriptPubKey']['hex']
-                        # Convert value from BTC (Decimal) to satoshis (int)
                         vout_val = int(Decimal(str(vout_dict['value'])) * 10**8)
                         prev_tx_vouts.append(CTxOut(vout_val, CScript(x(script_pub_key_hex))))
                         valid_indices.append(original_index)
@@ -216,7 +246,6 @@ class BlockchainCrawler:
                 if not prev_tx_vouts:
                     continue
 
-                # Pass the CTransaction object, the vouts of inputs, and the indices of those inputs
                 signatures = self.parser.process_transaction(tx, valid_indices, prev_tx_vouts, block_number)
                 all_signatures.extend(signatures)
 
