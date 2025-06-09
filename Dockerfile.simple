@@ -11,32 +11,45 @@ RUN apt-get update && \
     libgmp-dev \
     libmpfr-dev \
     libmpc-dev \
+    libfplll-dev \
+    libqd-dev \
+    pkg-config \
+    autotools-dev \
+    libtool \
     netcat && \
     rm -rf /var/lib/apt/lists/*
 
 # Set SAGE_ROOT environment variable
 ENV SAGE_ROOT=/home/sage/sage
 
-# Install Python dependencies
+# Install Python dependencies in proper order
+# First install Cython and cysignals before fpylll
 RUN sage -pip install --no-cache-dir \
-    numpy==1.24.4 \
-    scipy==1.10.1 \
-    matplotlib==3.7.1 \
-    pandas==2.0.3 \
-    pymongo==4.5.0 \
-    python-dotenv==1.0.0 \
-    requests==2.31.0 \
-    ecdsa==0.18.0 \
-    python-bitcoinlib==0.12.0 \
-    motor==3.3.0 \
-    pydantic==2.3.0 \
-    PyYAML==6.0.1 \
-    fpylll==0.5.9 \
-    Cython==0.29.36 \
-    cysignals==1.11.4
+    Cython==0.29.36
+
+# SageMath comes with fpylll built-in, so we'll use that
+# Just verify it's available
+RUN sage -python -c "import fpylll; print('fpylll available in SageMath:', fpylll.__version__)"
+
+# Install other dependencies (fpylll excluded as it's built into SageMath)
+COPY requirements.txt /tmp/requirements.txt
+RUN sage -pip install --no-cache-dir -r /tmp/requirements.txt
 
 WORKDIR /app
 COPY . /app/
+
+# Create a test script to verify all dependencies work
+RUN echo 'import fpylll; print("fpylll version:", fpylll.__version__)' > /tmp/test_deps.py && \
+    echo 'import numpy; print("numpy version:", numpy.__version__)' >> /tmp/test_deps.py && \
+    echo 'import scipy; print("scipy version:", scipy.__version__)' >> /tmp/test_deps.py && \
+    echo 'import pymongo; print("pymongo version:", pymongo.__version__)' >> /tmp/test_deps.py && \
+    echo 'from fpylll import LLL, GSO, IntegerMatrix' >> /tmp/test_deps.py && \
+    echo 'A = IntegerMatrix.random(10, "uniform", bits=10)' >> /tmp/test_deps.py && \
+    echo 'M = GSO.Mat(A)' >> /tmp/test_deps.py && \
+    echo 'L = LLL.Reduction(M)' >> /tmp/test_deps.py && \
+    echo 'L()' >> /tmp/test_deps.py && \
+    echo 'print("All dependencies working correctly!")' >> /tmp/test_deps.py && \
+    sage -python /tmp/test_deps.py
 
 # Make wait-for-it.sh executable
 RUN chmod +x /app/wait-for-it.sh

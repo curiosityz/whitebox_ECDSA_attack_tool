@@ -17,4 +17,7 @@ COPY . /app/
 # Install project dependencies
 RUN sage -pip install --no-cache-dir -r requirements.txt
 
-CMD ["sage", "-python", "-m", "llh.analysis.main"]
+# Set Python path to include the current directory
+ENV PYTHONPATH="/app:$PYTHONPATH"
+
+CMD ["sage", "-python", "-m", "src.llh.analysis.main"]

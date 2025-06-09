@@ -1,0 +1,8 @@
+FROM sagemath/sagemath:10.1
+
+USER root
+
+# Just test if SageMath and fpylll work
+RUN sage -python -c "import fpylll; print('fpylll available in SageMath:', fpylll.__version__)"
+
+WORKDIR /app

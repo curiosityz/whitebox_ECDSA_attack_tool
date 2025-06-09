@@ -11,4 +11,4 @@ motor==3.3.0
 pydantic==2.3.0
 PyYAML==6.0.1
 asyncio==3.4.3
-fpylll==0.5.9
+# fpylll==0.5.9  # Commented out - using SageMath's built-in fpylll instead
